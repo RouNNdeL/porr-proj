@@ -176,7 +176,7 @@ void matrix_inv(const matrix_t* m, matrix_t* out) {
 
     float d = det(m);
     if (m->size == 1) {
-        out->data[0] = 1/d;
+        out->data[0] = 1 / d;
         return ;
     }
     if (d == 0) {
