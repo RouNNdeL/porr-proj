@@ -113,7 +113,7 @@ void mblock_fill(mblock_t* dst, const matrix_t* src) {
     }
 }
 
-void matrix_reconstruct(const mblock_t* src, matrix_t* dst) {
+void matrix_reconstruct(matrix_t* dst, const mblock_t* src) {
     assert(dst->size % src->size == 0);
 
     for (uint32_t i = 0; i < dst->size; i++) {
@@ -175,7 +175,7 @@ void matrix_inv(const matrix_t* m, matrix_t* out) {
     assert(m->size == out->size);
 
     float d = det(m);
-    if(m->size == 1){
+    if (m->size == 1) {
         out->data[0] = 1/d;
         return ;
     }
@@ -280,7 +280,7 @@ uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err) {
     uint32_t i = 0;
     uint8_t done = 0;
 
-    if(a->size == 1){
+    if (a->size == 1) {
         C(output, 0, 0) = sqrtf(C(a, 0, 0));
         return 0;
     }
