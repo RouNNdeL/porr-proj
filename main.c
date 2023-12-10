@@ -343,7 +343,8 @@ void decomp2(const matrix_t* matrix, matrix_t* l) {
 
 void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
-    matrix_t* tmp = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
     uint32_t n = mblock->size;
 
     mblock_cpy(a, mblock);
@@ -356,8 +357,9 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
         }
         for (uint32_t j = k + 1; j < n; j++) {
             for (uint32_t i = j; i < n; i++) {
-                matrix_mul(C(l, i, k), C(l, j, k), tmp);
-                matrix_sub(C(a, i, j), tmp, C(a, i, j));
+                matrix_transpose(C(l, j, k), tmp1);
+                matrix_mul(C(l, i, k), tmp1, tmp2);
+                matrix_sub(C(a, i, j), tmp2, C(a, i, j));
             }
         }
     }
