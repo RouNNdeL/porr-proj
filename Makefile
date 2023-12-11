@@ -1,5 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Werror
+#CFLAGS = -Wall -Werror
+CFLAGS = -Wall -Werror -O3 -msse2 -mfpmath=sse -ffast-math
 LDFLAGS = -lm
 OUT_DIR = out
 BUILD_DIR = build
@@ -23,3 +24,5 @@ clean:
 
 run: $(TARGET)
 	./$(TARGET)
+profile: CFLAGS += -pg
+profile: clean all

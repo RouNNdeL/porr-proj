@@ -10,6 +10,7 @@
 #define COUNT_OF(x) (sizeof(x) / sizeof(x[0]))
 #define C(m, x, y) (m->data[(x) * (m->size) + (y)])
 
+
 typedef struct {
     float* data;
     uint32_t size;
@@ -131,9 +132,9 @@ float det(const matrix_t* m) {
     if (m->size == 2)
         return m->data[0] * m->data[3] - m->data[1] * m->data[2];
 
+    matrix_t* minor = matrix_alloc(m->size - 1);
     float d = 0;
     for (uint32_t i = 0; i < m->size; i++) {
-        matrix_t* minor = matrix_alloc(m->size - 1);
         for (uint32_t j = 1; j < m->size; j++) {
             for (uint32_t k = 0; k < m->size; k++) {
                 if (k < i)
@@ -143,14 +144,36 @@ float det(const matrix_t* m) {
             }
         }
         d += ((i % 2 == 0) ? 1 : -1) * m->data[i] * det(minor);
-        matrix_free(minor);
     }
+    matrix_free(minor);
 
     return d;
 }
 
-float cof(const matrix_t* m, uint32_t row, uint32_t col) {
-    matrix_t* minor = matrix_alloc(m->size - 1);
+void decomp2(const matrix_t* matrix, matrix_t* l) {
+    matrix_t* a = matrix_alloc(matrix->size);
+
+    matrix_cpy(a, matrix);
+    matrix_zero(l);
+
+    for (uint32_t k = 0; k < matrix->size - 1; k++) {
+        C(l, k, k) = sqrt(C(a, k, k));
+        for (uint32_t i = k + 1; i < matrix->size; i++) {
+            C(l, i, k) = C(a, i, k) / C(l, k, k);
+        }
+        for (uint32_t j = k + 1; j < matrix->size; j++) {
+            for (uint32_t i = j; i < matrix->size; i++) {
+                C(a, i, j) -= C(l, i, k) * C(l, j, k);
+            }
+        }
+    }
+    // last element
+    l->data[l->size * l->size - 1] = sqrt(a->data[l->size * l->size - 1]);
+
+    matrix_free(a);
+}
+
+float cof(const matrix_t* m, matrix_t* minor, uint32_t row, uint32_t col) {
     uint32_t minorRow = 0, minorCol = 0;
 
     for (uint32_t i = 0; i < m->size; i++) {
@@ -167,7 +190,6 @@ float cof(const matrix_t* m, uint32_t row, uint32_t col) {
     }
 
     float c = ((row + col) % 2 == 0 ? 1 : -1) * det(minor);
-    matrix_free(minor);
 
     return c;
 }
@@ -187,11 +209,13 @@ void matrix_inv(const matrix_t* m, matrix_t* out) {
         return;
     }
 
+    matrix_t* minor = matrix_alloc(m->size - 1);
     for (uint32_t i = 0; i < m->size; i++) {
         for (uint32_t j = 0; j < m->size; j++) {
-            C(out, j, i) = cof(m, i, j) / d;
+            C(out, j, i) = cof(m, minor, i, j) / d;
         }
     }
+    matrix_free(minor);
 }
 
 void matrix_add(const matrix_t* a, const matrix_t* b, matrix_t* out) {
@@ -216,18 +240,15 @@ void matrix_mul(const matrix_t* a, const matrix_t* b, matrix_t* out) {
     assert(a->size == b->size);
     assert(a->size == out->size);
 
-    matrix_t* tmp = matrix_alloc(a->size);
+    matrix_zero(out);
 
     for (uint32_t i = 0; i < a->size; i++) {
         for (uint32_t j = 0; j < a->size; j++) {
             for (uint32_t k = 0; k < a->size; k++) {
-                C(tmp, i, j) += C(a, i, k) * C(b, k, j);
+                C(out, i, j) += C(a, i, k) * C(b, k, j);
             }
         }
     }
-
-    matrix_cpy(out, tmp);
-    matrix_free(tmp);
 }
 
 void matrix_div(const matrix_t* a, const matrix_t* b, matrix_t* out) {
@@ -268,13 +289,7 @@ void matrix_i(matrix_t* output) {
     }
 }
 
-uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err, uint64_t maxiter) {
-    matrix_t* Y = matrix_alloc(a->size);
-    matrix_t* Z = matrix_alloc(a->size);
-    matrix_t* nextY = matrix_alloc(a->size);
-    matrix_t* nextZ = matrix_alloc(a->size);
-    matrix_t* tmp = matrix_alloc(a->size);
-
+uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, matrix_t* Y, matrix_t* Z, matrix_t* nextY, matrix_t* nextZ, matrix_t* tmp, float err) {
     matrix_cpy(Y, a);
     matrix_i(Z);
 
@@ -299,17 +314,10 @@ uint32_t matrix_sqrt(const matrix_t* a, matrix_t* output, float err, uint64_t ma
         matrix_cpy(Y, nextY);
         matrix_cpy(Z, nextZ);
         i++;
-        if(i > maxiter) {
-            done = true;
-        }
     }
 
     matrix_cpy(output, Y);
 
-    matrix_free(Y);
-    matrix_free(Z);
-    matrix_free(nextY);
-    matrix_free(nextZ);
 
     return i;
 }
@@ -322,7 +330,8 @@ void matrix_transpose(const matrix_t* a, matrix_t* out) {
     }
 }
 
-void matrix_random_l(matrix_t* m, int64_t min_val, int64_t max_val) {
+void matrix_random_l(matrix_t* m, uint64_t max_val) {
+    uint32_t min_val = 1;
     for (uint32_t i = 0; i < m->size; ++i) {
         for (uint32_t j = 0; j <= i; ++j) {
             if (min_val == max_val) {
@@ -334,16 +343,18 @@ void matrix_random_l(matrix_t* m, int64_t min_val, int64_t max_val) {
     }
 }
 
-void matrix_random_pds(matrix_t* m, int64_t min_val, int64_t max_val) {
+void matrix_random_pds1(matrix_t* m, int64_t min_val) {
     matrix_t* tmp = matrix_alloc(m->size);
+    matrix_t* tmp2 = matrix_alloc(m->size);
 
-    matrix_random_l(m, min_val, max_val);
+    matrix_random_l(m, min_val);
     matrix_transpose(m, tmp);
-    matrix_mul(m, tmp, m);
+    matrix_mul(m, tmp, tmp2);
+    matrix_cpy(m, tmp2);
 
     matrix_free(tmp);
+    matrix_free(tmp2);
 }
-
 
 uint32_t matrix_cmp(const matrix_t* m1, const matrix_t* m2, float perr) {
     uint32_t c = 0;
@@ -364,42 +375,27 @@ uint32_t matrix_cmp(const matrix_t* m1, const matrix_t* m2, float perr) {
     return c;
 }
 
-void decomp2(const matrix_t* matrix, matrix_t* l) {
-    matrix_t* a = matrix_alloc(matrix->size);
-
-    matrix_cpy(a, matrix);
-    matrix_zero(l);
-
-    for (uint32_t k = 0; k < matrix->size - 1; k++) {
-        C(l, k, k) = sqrt(C(a, k, k));
-        for (uint32_t i = k + 1; i < matrix->size; i++) {
-            C(l, i, k) = C(a, i, k) / C(l, k, k);
-        }
-        for (uint32_t j = k + 1; j < matrix->size; j++) {
-            for (uint32_t i = j; i < matrix->size; i++) {
-                C(a, i, j) -= C(l, i, k) * C(l, j, k);
-            }
-        }
-    }
-    // last element
-    l->data[l->size * l->size - 1] = sqrt(a->data[l->size * l->size - 1]);
-
-    matrix_free(a);
-}
-
 void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
     matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
     matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
+    // optimization reasons
+    matrix_t* Y = matrix_alloc(tmp1->size);
+    matrix_t* Z = matrix_alloc(tmp1->size);
+    matrix_t* nextY = matrix_alloc(tmp1->size);
+    matrix_t* nextZ = matrix_alloc(tmp1->size);
+
     uint32_t n = mblock->size;
 
     mblock_cpy(a, mblock);
     mblock_zero(l);
 
     for (uint32_t k = 0; k < n - 1; k++) {
-        matrix_sqrt(C(a, k, k), C(l, k, k), 0.0001, 20);
+        matrix_sqrt(C(a, k, k), C(l, k, k), Y, Z, nextY, nextZ, tmp1, 0.0001);
         for (uint32_t i = k + 1; i < n; i++) {
-            matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
+            // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
+            matrix_inv(C(l, k, k), tmp1);
+            matrix_mul(C(a, i, k), tmp1, C(l, i, k));
         }
         for (uint32_t j = k + 1; j < n; j++) {
             for (uint32_t i = j; i < n; i++) {
@@ -409,9 +405,15 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
             }
         }
     }
-    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), 0.0001, 20);
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
 
     mblock_free(a);
+    matrix_free(tmp1);
+    matrix_free(tmp2);
+    matrix_free(Y);
+    matrix_free(Z);
+    matrix_free(nextY);
+    matrix_free(nextZ);
 }
 
 void decomp1(const float* matrix, float* lower, uint32_t n) {
@@ -436,26 +438,48 @@ void decomp1(const float* matrix, float* lower, uint32_t n) {
     }
 }
 
+void matrix_random_pds(matrix_t* m, int64_t max_val) {
+    int64_t min_val = 1;
+    matrix_t* tmp1 = matrix_alloc(m->size);
+    matrix_t* tmp2 = matrix_alloc(m->size);
+    // Fill the matrix with random values in the specified range
+    for (uint32_t i = 0; i < m->size; i++) {
+        for (uint32_t j = i; j < m->size; j++) {
+            uint64_t random_value = rand() % (max_val - min_val) + min_val;
+            C(m, i, j) = random_value;
+        }
+    }
+    matrix_transpose(m, tmp1);
+    matrix_add(m, tmp1, tmp2);
+    matrix_mul_imm(tmp2, 0.5, m);
+
+    // Add N * Identity matrix
+    for (uint32_t i = 0; i < m->size; i++) {
+        C(m, i, i) += m->size;
+    }
+}
+
 int32_t main(int argc, char**argv) {
     srand(time(NULL));
 
-    const uint32_t n = 64;
-    const uint32_t block_size = 8;
-    assert(128 % 8 == 0);
-    const uint32_t blocks_count = n / block_size;
+    const uint32_t n = 256;
+    const uint32_t block_size = 4;
+    assert(n % block_size == 0);
+    const uint32_t block_count = n / block_size;
 
     matrix_t* matrix = matrix_alloc(n);
     matrix_t* m_out = matrix_alloc(n);
 
-    mblock_t* mblock = mblock_alloc(block_size, blocks_count);
-    mblock_t* mb_output = mblock_alloc(block_size, blocks_count);
+    mblock_t* mblock = mblock_alloc(block_count, block_size);
+    mblock_t* mb_output = mblock_alloc(block_count, block_size);
 
     matrix_t* decomposed = matrix_alloc(n);
     matrix_t* transposed = matrix_alloc(n);
     matrix_t* reconstructed = matrix_alloc(n);
+    clock_t start, end;
+    double cpu_time_used;
 
-
-    matrix_random_pds(matrix, -50, 50);
+    matrix_random_pds(matrix, 50);
     mblock_fill(mblock, matrix);
 
     puts("=======================");
@@ -464,12 +488,20 @@ int32_t main(int argc, char**argv) {
     puts("=======================");
 
     puts("Normal decomp");
+    start = clock();
     decomp2(matrix, m_out);
+    end = clock();
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("Execution time: %f seconds\n", cpu_time_used);
     matrix_print(m_out);
     puts("=======================");
 
     puts("Block decomp");
+    start = clock();
     decomp2_block(mblock, mb_output);
+    end = clock();
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("Execution time: %f seconds\n", cpu_time_used);
     matrix_reconstruct(decomposed, mb_output);
     matrix_print(decomposed);
     puts("=======================");
@@ -481,8 +513,7 @@ int32_t main(int argc, char**argv) {
     matrix_print(reconstructed);
     puts("=======================");
 
-    matrix_print(matrix);
-    uint32_t errors = matrix_cmp(matrix, reconstructed, 0.01);
+    uint32_t errors = matrix_cmp(matrix, reconstructed, 0.0001);
     if(errors == 0) {
         printf("WORKED!");
     } else {
