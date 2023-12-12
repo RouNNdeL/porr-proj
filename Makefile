@@ -1,6 +1,6 @@
 CC = gcc
-#CFLAGS = -Wall -Werror
-CFLAGS = -Wall -O3 -msse2 -mfpmath=sse -ffast-math
+CFLAGS = -Wall -Werror
+#CFLAGS = -Wall -O3 -msse2 -mfpmath=sse -ffast-math
 LDFLAGS = -lm -lpthread
 OUT_DIR = out
 BUILD_DIR = build

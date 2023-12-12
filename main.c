@@ -559,101 +559,84 @@ void matrix_random_pds(matrix_t* m, int64_t max_val) {
 
     // Add N * Identity matrix
     for (uint32_t i = 0; i < m->size; i++) {
-        C(m, i, i) += m->size;
+        C(m, i, i) += m->size * 8;
     }
 }
 
-int32_t main(int argc, char**argv) {
-    srand(time(NULL));
-
-    const uint32_t n = 2048;
-    const uint32_t block_size = 4;
-    assert(n % block_size == 0);
-    const uint32_t block_count = n / block_size;
-
-    matrix_t* matrix = matrix_alloc(n);
-    matrix_t* m_out = matrix_alloc(n);
-
-    mblock_t* mblock = mblock_alloc(block_count, block_size);
-    mblock_t* mb_output = mblock_alloc(block_count, block_size);
-
-    matrix_t* decomposed = matrix_alloc(n);
-    matrix_t* transposed = matrix_alloc(n);
-    matrix_t* reconstructed = matrix_alloc(n);
+void time_normal_decompose(matrix_t* matrix) {
     clock_t start, end;
     double cpu_time_used;
 
-    matrix_random_pds(matrix, 50);
-    mblock_fill(mblock, matrix);
+    matrix_t* m_out = matrix_alloc(matrix->size);
 
-    puts("=======================");
-    puts("Matrix to decompose");
-    // matrix_print(matrix);
-    puts("=======================");
-
-    puts("Normal decomp");
     start = clock();
     decomp2(matrix, m_out);
     end = clock();
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("Execution time: %f seconds\n", cpu_time_used);
-    //matrix_print(m_out);
-    puts("=======================");
+    printf("standard,%u,0,%f\n", matrix->size, cpu_time_used);
 
-    puts("Block decomp");
+    free(m_out);
+}
+
+void time_block_decompose(matrix_t* matrix, uint32_t bs) {
+    clock_t start, end;
+    double cpu_time_used;
+
+    assert(matrix->size % bs == 0);
+
+    mblock_t* mblock = mblock_alloc(matrix->size / bs, bs);
+    mblock_t* m_out = mblock_alloc(matrix->size / bs, bs);
+
+    mblock_fill(mblock, matrix);
+
     start = clock();
-    decomp2_block(mblock, mb_output);
+    decomp2_block(mblock, m_out);
     end = clock();
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("Execution time: %f seconds\n", cpu_time_used);
-    matrix_reconstruct(decomposed, mb_output);
-    // matrix_print(decomposed);
-    puts("=======================");
+    printf("block,%u,%u,%f\n", matrix->size, bs, cpu_time_used);
 
-    puts("L*L.T");
-    matrix_reconstruct(decomposed, mb_output);
-    matrix_transpose(decomposed, transposed);
-    matrix_mul(decomposed, transposed, reconstructed);
-    // matrix_print(reconstructed);
-    puts("=======================");
+    free(mblock);
+    free(m_out);
+}
 
-    uint32_t errors = matrix_cmp(matrix, reconstructed, 0.0001);
-    if(errors == 0) {
-        printf("WORKED!\n");
-    } else {
-        printf("UNWORKED! Err: %u\n", errors);
-    }
+void time_block_decompose_pararell(matrix_t* matrix, uint32_t bs) {
+    clock_t start, end;
+    double cpu_time_used;
 
-    puts("Block decomp pararell");
+    assert(matrix->size % bs == 0);
+
+    mblock_t* mblock = mblock_alloc(matrix->size / bs, bs);
+    mblock_t* m_out = mblock_alloc(matrix->size / bs, bs);
+
+    mblock_fill(mblock, matrix);
+
     start = clock();
-    decomp2_block_pararell(mblock, mb_output);
+    decomp2_block_pararell(mblock, m_out);
     end = clock();
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("Execution time: %f seconds\n", cpu_time_used);
-    matrix_reconstruct(decomposed, mb_output);
-    // matrix_print(decomposed);
-    puts("=======================");
+    printf("block_pararell,%u,%u,%f\n", matrix->size, bs, cpu_time_used);
 
-    puts("L*L.T");
-    matrix_reconstruct(decomposed, mb_output);
-    matrix_transpose(decomposed, transposed);
-    matrix_mul(decomposed, transposed, reconstructed);
-    // matrix_print(reconstructed);
-    puts("=======================");
+    free(mblock);
+    free(m_out);
+}
 
-    errors = matrix_cmp(matrix, reconstructed, 0.0001);
-    if(errors == 0) {
-        printf("WORKED!\n");
-    } else {
-        printf("UNWORKED! Err: %u\n", errors);
+int32_t main(int argc, char**argv) {
+    srand(2137);
+
+    for(uint32_t n = 0; n < 10; n++) {
+        for(uint32_t i = 4; i <= 10; i++) {
+            matrix_t* matrix = matrix_alloc(1 << i);
+            matrix_random_pds(matrix, 50);
+
+            time_normal_decompose(matrix);
+            for(uint32_t j = 1; j <= 3; j++) {
+                time_block_decompose(matrix, 1 << j);
+                time_block_decompose_pararell(matrix, 1 << j);
+            }
+
+            matrix_free(matrix);
+        }
     }
-
-    matrix_free(matrix);
-    mblock_free(mblock);
-    matrix_free(decomposed);
-    matrix_free(transposed);
-    matrix_free(reconstructed);
-
 
     return 0;
 }
