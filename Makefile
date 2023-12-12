@@ -1,7 +1,7 @@
 CC = gcc
 #CFLAGS = -Wall -Werror
-CFLAGS = -Wall -Werror -O3 -msse2 -mfpmath=sse -ffast-math
-LDFLAGS = -lm
+CFLAGS = -Wall -O3 -msse2 -mfpmath=sse -ffast-math
+LDFLAGS = -lm -lpthread
 OUT_DIR = out
 BUILD_DIR = build
 TARGET = $(OUT_DIR)/matrixfun

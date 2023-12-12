@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <pthread.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -416,6 +417,109 @@ void decomp2_block(const mblock_t* mblock, mblock_t* l) {
     matrix_free(nextZ);
 }
 
+typedef struct {
+    uint32_t start;
+    uint32_t end;
+    uint32_t k;
+    uint32_t n;
+    mblock_t* a;
+    mblock_t* l;
+} thread_args;
+
+
+void* loop1(void* arguments) {
+    thread_args* args = (thread_args*)arguments;
+
+    matrix_t* tmp1 = matrix_alloc(args->a->data[0]->size);
+    for (uint32_t i = args->start; i < args->end; i++) {
+        // matrix_div(C(a, i, k), C(l, k, k), C(l, i, k));
+        matrix_inv(C(args->l, args->k, args->k), tmp1);
+        matrix_mul(C(args->a, i, args->k), tmp1, C(args->l, i, args->k));
+    }
+    matrix_free(tmp1);
+
+    return NULL;
+}
+
+void* loop2(void *arguments) {
+    thread_args* args = (thread_args*)arguments;
+
+    matrix_t* tmp1 = matrix_alloc(args->a->data[0]->size);
+    matrix_t* tmp2 = matrix_alloc(args->a->data[0]->size);
+    for (uint32_t j = args->start; j < args->end; j++) {
+        for (uint32_t i = j; i < args->n; i++) {
+            matrix_transpose(C(args->l, j, args->k), tmp1);
+            matrix_mul(C(args->l, i, args->k), tmp1, tmp2);
+            matrix_sub(C(args->a, i, j), tmp2, C(args->a, i, j));
+        }
+    }
+    matrix_free(tmp1);
+    matrix_free(tmp2);
+
+    return NULL;
+}
+
+#define NUM_THREADS 4
+
+void decomp2_block_pararell(const mblock_t* mblock, mblock_t* l) {
+    mblock_t* a = mblock_alloc(mblock->size, mblock->data[0]->size);
+    matrix_t* tmp1 = matrix_alloc(mblock->data[0]->size);
+    matrix_t* tmp2 = matrix_alloc(mblock->data[0]->size);
+    // optimization reasons
+    matrix_t* Y = matrix_alloc(tmp1->size);
+    matrix_t* Z = matrix_alloc(tmp1->size);
+    matrix_t* nextY = matrix_alloc(tmp1->size);
+    matrix_t* nextZ = matrix_alloc(tmp1->size);
+
+    uint32_t n = mblock->size;
+
+    mblock_cpy(a, mblock);
+    mblock_zero(l);
+
+    pthread_t threads[NUM_THREADS];
+    thread_args args[NUM_THREADS];
+    for (uint32_t k = 0; k < n - 1; k++) {
+        matrix_sqrt(C(a, k, k), C(l, k, k), Y, Z, nextY, nextZ, tmp1, 0.0001);
+
+        uint32_t chunk_size = (n - k - 1) / NUM_THREADS;
+        for (int t = 0; t < NUM_THREADS; t++) {
+            args[t].start = k + 1 + t * chunk_size;
+            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
+            args[t].k = k;
+            args[t].a = a;
+            args[t].l = l;
+
+            pthread_create(&threads[t], NULL, loop1, (void*)&args[t]);
+        }
+        for (int t = 0; t < NUM_THREADS; t++) {
+            pthread_join(threads[t], NULL);
+        }
+
+        for (int t = 0; t < NUM_THREADS; t++) {
+            args[t].start = k + 1 + t * chunk_size;
+            args[t].end = (t == NUM_THREADS - 1) ? n : args[t].start + chunk_size;
+            args[t].k = k;
+            args[t].a = a;
+            args[t].n = n;
+            args[t].l = l;
+
+            pthread_create(&threads[t], NULL, loop2, (void*)&args[t]);
+        }
+        for (int t = 0; t < NUM_THREADS; t++) {
+            pthread_join(threads[t], NULL);
+        }
+    }
+    matrix_sqrt(C(a, n - 1, n - 1), C(l, n - 1, n - 1), Y, Z, nextY, nextZ, tmp1, 0.0001);
+
+    mblock_free(a);
+    matrix_free(tmp1);
+    matrix_free(tmp2);
+    matrix_free(Y);
+    matrix_free(Z);
+    matrix_free(nextY);
+    matrix_free(nextZ);
+}
+
 void decomp1(const float* matrix, float* lower, uint32_t n) {
     memset(lower, 0, n * n * sizeof(float));
 
@@ -462,7 +566,7 @@ void matrix_random_pds(matrix_t* m, int64_t max_val) {
 int32_t main(int argc, char**argv) {
     srand(time(NULL));
 
-    const uint32_t n = 256;
+    const uint32_t n = 2048;
     const uint32_t block_size = 4;
     assert(n % block_size == 0);
     const uint32_t block_count = n / block_size;
@@ -484,7 +588,7 @@ int32_t main(int argc, char**argv) {
 
     puts("=======================");
     puts("Matrix to decompose");
-    matrix_print(matrix);
+    // matrix_print(matrix);
     puts("=======================");
 
     puts("Normal decomp");
@@ -493,7 +597,7 @@ int32_t main(int argc, char**argv) {
     end = clock();
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
     printf("Execution time: %f seconds\n", cpu_time_used);
-    matrix_print(m_out);
+    //matrix_print(m_out);
     puts("=======================");
 
     puts("Block decomp");
@@ -503,21 +607,45 @@ int32_t main(int argc, char**argv) {
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
     printf("Execution time: %f seconds\n", cpu_time_used);
     matrix_reconstruct(decomposed, mb_output);
-    matrix_print(decomposed);
+    // matrix_print(decomposed);
     puts("=======================");
 
     puts("L*L.T");
     matrix_reconstruct(decomposed, mb_output);
     matrix_transpose(decomposed, transposed);
     matrix_mul(decomposed, transposed, reconstructed);
-    matrix_print(reconstructed);
+    // matrix_print(reconstructed);
     puts("=======================");
 
     uint32_t errors = matrix_cmp(matrix, reconstructed, 0.0001);
     if(errors == 0) {
-        printf("WORKED!");
+        printf("WORKED!\n");
     } else {
-        printf("UNWORKED! Err: %u", errors);
+        printf("UNWORKED! Err: %u\n", errors);
+    }
+
+    puts("Block decomp pararell");
+    start = clock();
+    decomp2_block_pararell(mblock, mb_output);
+    end = clock();
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("Execution time: %f seconds\n", cpu_time_used);
+    matrix_reconstruct(decomposed, mb_output);
+    // matrix_print(decomposed);
+    puts("=======================");
+
+    puts("L*L.T");
+    matrix_reconstruct(decomposed, mb_output);
+    matrix_transpose(decomposed, transposed);
+    matrix_mul(decomposed, transposed, reconstructed);
+    // matrix_print(reconstructed);
+    puts("=======================");
+
+    errors = matrix_cmp(matrix, reconstructed, 0.0001);
+    if(errors == 0) {
+        printf("WORKED!\n");
+    } else {
+        printf("UNWORKED! Err: %u\n", errors);
     }
 
     matrix_free(matrix);
