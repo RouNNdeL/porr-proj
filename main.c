@@ -564,23 +564,24 @@ void matrix_random_pds(matrix_t* m, int64_t max_val) {
 }
 
 void time_normal_decompose(matrix_t* matrix) {
-    clock_t start, end;
-    double cpu_time_used;
+    struct timespec start, finish;
+    double elapsed;
 
     matrix_t* m_out = matrix_alloc(matrix->size);
 
-    start = clock();
+    clock_gettime(CLOCK_MONOTONIC, &start);
     decomp2(matrix, m_out);
-    end = clock();
-    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("standard,%u,0,%f\n", matrix->size, cpu_time_used);
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+    elapsed = (finish.tv_sec - start.tv_sec);
+    elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+    printf("standard,%u,0,%f\n", matrix->size, elapsed);
 
     free(m_out);
 }
 
 void time_block_decompose(matrix_t* matrix, uint32_t bs) {
-    clock_t start, end;
-    double cpu_time_used;
+    struct timespec start, finish;
+    double elapsed;
 
     assert(matrix->size % bs == 0);
 
@@ -589,19 +590,20 @@ void time_block_decompose(matrix_t* matrix, uint32_t bs) {
 
     mblock_fill(mblock, matrix);
 
-    start = clock();
+    clock_gettime(CLOCK_MONOTONIC, &start);
     decomp2_block(mblock, m_out);
-    end = clock();
-    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("block,%u,%u,%f\n", matrix->size, bs, cpu_time_used);
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+    elapsed = (finish.tv_sec - start.tv_sec);
+    elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+    printf("block,%u,%u,%f\n", matrix->size, bs, elapsed);
 
     free(mblock);
     free(m_out);
 }
 
 void time_block_decompose_pararell(matrix_t* matrix, uint32_t bs) {
-    clock_t start, end;
-    double cpu_time_used;
+    struct timespec start, finish;
+    double elapsed;
 
     assert(matrix->size % bs == 0);
 
@@ -610,11 +612,13 @@ void time_block_decompose_pararell(matrix_t* matrix, uint32_t bs) {
 
     mblock_fill(mblock, matrix);
 
-    start = clock();
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
     decomp2_block_pararell(mblock, m_out);
-    end = clock();
-    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-    printf("block_pararell,%u,%u,%f\n", matrix->size, bs, cpu_time_used);
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+    elapsed = (finish.tv_sec - start.tv_sec);
+    elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+    printf("block_pararell,%u,%u,%f\n", matrix->size, bs, elapsed);
 
     free(mblock);
     free(m_out);
